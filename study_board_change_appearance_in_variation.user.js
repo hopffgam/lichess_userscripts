@@ -4,6 +4,7 @@
 // @version      1.0
 // @description  Changes the board appearance in lichess studies when board shows a move that is in a variation instead of the main line
 // @match        https://lichess.org/study/*
+// @match        https://lichess.org/broadcast/*
 // @grant        unsafeWindow
 // @run-at       document-idle
 // ==/UserScript==
@@ -17,18 +18,26 @@
     // SETTINGS
     // ============================================================
 
-    const STORAGE_KEY =
-        'lichess-show-variation-text';
+    const TEXT_OPACITY_KEY =
+        'lichess-variation-text-opacity';
+
+    const BOARD_PALE_KEY =
+        'lichess-variation-board-pale';
 
     const TEXT_BOARD_WIDTH =
         2 / 3;
 
     const TEXT_COLOR =
-        'rgba(120, 120, 120, 0.22)';
+        'rgba(120, 120, 120, 1)';
 
-    // Read saved preference.
-    let showVariationText =
-        localStorage.getItem(STORAGE_KEY) !== 'false';
+    // Defaults:
+    // Text: 2/10 = 20% opaque
+    // Board: 5/10 = moderately pale
+    let textOpacity =
+        Number(localStorage.getItem(TEXT_OPACITY_KEY) ?? 2);
+
+    let boardPale =
+        Number(localStorage.getItem(BOARD_PALE_KEY) ?? 5);
 
 
     // ============================================================
@@ -41,41 +50,20 @@
     overlay.textContent =
         'VARIATION';
 
-    overlay.style.position =
-        'fixed';
-
-    overlay.style.zIndex =
-        '10';
-
-    overlay.style.pointerEvents =
-        'none';
-
-    overlay.style.fontFamily =
-        'sans-serif';
-
-    overlay.style.fontSize =
-        '100px';
-
-    overlay.style.fontWeight =
-        'bold';
-
-    overlay.style.letterSpacing =
-        '0.08em';
-
-    overlay.style.color =
-        TEXT_COLOR;
-
-    overlay.style.whiteSpace =
-        'nowrap';
-
-    overlay.style.display =
-        'none';
-
-    overlay.style.visibility =
-        'hidden';
-
-    overlay.style.transform =
-        'translate(-50%, -50%)';
+    Object.assign(overlay.style, {
+        position: 'fixed',
+        zIndex: '10',
+        pointerEvents: 'none',
+        fontFamily: 'sans-serif',
+        fontSize: '100px',
+        fontWeight: 'bold',
+        letterSpacing: '0.08em',
+        color: TEXT_COLOR,
+        whiteSpace: 'nowrap',
+        display: 'none',
+        visibility: 'hidden',
+        transform: 'translate(-50%, -50%)'
+    });
 
     document.body.appendChild(overlay);
 
@@ -93,18 +81,13 @@
             return false;
         }
 
-        /*
-         * Keep the overlay rendered but invisible while measuring.
-         * This prevents the large-text flash while still allowing
-         * getBoundingClientRect() to measure the text.
-         */
+        // Keep rendered but invisible while measuring.
         overlay.style.display =
             'block';
 
         overlay.style.visibility =
             'hidden';
 
-        // Measure at a known font size.
         overlay.style.fontSize =
             '100px';
 
@@ -115,18 +98,15 @@
             return false;
         }
 
-        // Calculate the required font size.
         const targetWidth =
             rect.width * TEXT_BOARD_WIDTH;
 
         const fontSize =
             100 * targetWidth / textWidth;
 
-        // Set final font size before making the text visible.
         overlay.style.fontSize =
             fontSize + 'px';
 
-        // Centre the text on the board.
         overlay.style.left =
             (rect.left + rect.width / 2) + 'px';
 
@@ -134,6 +114,44 @@
             (rect.top + rect.height / 2) + 'px';
 
         return true;
+    }
+
+
+    // ============================================================
+    // BOARD APPEARANCE
+    // ============================================================
+
+    function updateBoardAppearance(board) {
+
+        if (boardPale === 0) {
+            board.style.filter = '';
+            return;
+        }
+
+        const level =
+            boardPale / 10;
+
+        /*
+         * 0:
+         *   Completely unchanged.
+         *
+         * 10:
+         *   Much paler, with reduced saturation,
+         *   increased brightness and a slight sepia tone.
+         */
+        const sepia =
+            0.6 * level;
+
+        const saturation =
+            1 - 0.6 * level;
+
+        const brightness =
+            1 + 0.5 * level;
+
+        board.style.filter =
+            `sepia(${sepia}) ` +
+            `saturate(${saturation}) ` +
+            `brightness(${brightness})`;
     }
 
 
@@ -159,20 +177,24 @@
 
         if (variation) {
 
-            // Give variation boards a sepia appearance.
-            board.style.filter =
-                'sepia(1) saturate(0.7)';
+            // ----------------------------------------------------
+            // BOARD
+            // ----------------------------------------------------
 
-            if (showVariationText) {
+            updateBoardAppearance(board);
 
-                /*
-                 * Calculate size and position while invisible.
-                 */
+
+            // ----------------------------------------------------
+            // TEXT
+            // ----------------------------------------------------
+
+            if (textOpacity > 0) {
+
                 if (positionOverlay(board)) {
 
-                    /*
-                     * Everything is now ready, so reveal it.
-                     */
+                    overlay.style.opacity =
+                        textOpacity / 10;
+
                     overlay.style.visibility =
                         'visible';
                 }
@@ -188,7 +210,10 @@
 
         } else {
 
-            // Restore normal board.
+            // ----------------------------------------------------
+            // MAINLINE
+            // ----------------------------------------------------
+
             board.style.filter =
                 '';
 
@@ -204,76 +229,122 @@
 
 
     // ============================================================
-    // UI TOGGLE
+    // UI
     // ============================================================
 
-    function createToggle() {
+    function createSlider(
+        id,
+        labelText,
+        value,
+        onChange
+    ) {
 
-        if (
-            document.getElementById(
-                'variation-text-toggle'
-            )
-        ) {
+        if (document.getElementById(id)) {
             return;
         }
 
-        const label =
+        const container =
             document.createElement('label');
 
-        label.id =
-            'variation-text-toggle';
+        container.id =
+            id;
 
-        label.style.display =
-            'flex';
-
-        label.style.alignItems =
-            'center';
-
-        label.style.gap =
-            '0.5em';
-
-        label.style.cursor =
-            'pointer';
-
-        label.style.userSelect =
-            'none';
-
-        label.style.padding =
-            '0.5em';
-
-
-        const checkbox =
-            document.createElement('input');
-
-        checkbox.type =
-            'checkbox';
-
-        checkbox.checked =
-            showVariationText;
+        Object.assign(container.style, {
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5em',
+            cursor: 'pointer',
+            userSelect: 'none',
+            padding: '0.5em'
+        });
 
 
         const caption =
             document.createElement('span');
 
         caption.textContent =
-            'In variation show watermark';
+            labelText;
 
 
-        label.appendChild(checkbox);
-        label.appendChild(caption);
+        const slider =
+            document.createElement('input');
+
+        slider.type =
+            'range';
+
+        slider.min =
+            '0';
+
+        slider.max =
+            '10';
+
+        slider.step =
+            '1';
+
+        slider.value =
+            value;
 
 
-        checkbox.addEventListener(
-            'change',
+        const valueDisplay =
+            document.createElement('span');
+
+        valueDisplay.textContent =
+            value;
+
+        valueDisplay.style.minWidth =
+            '1.2em';
+
+        valueDisplay.style.textAlign =
+            'center';
+
+
+        slider.addEventListener(
+            'input',
             () => {
 
-                showVariationText =
-                    checkbox.checked;
+                const newValue =
+                    Number(slider.value);
 
-                // Save preference.
+                valueDisplay.textContent =
+                    newValue;
+
+                onChange(newValue);
+            }
+        );
+
+
+        container.append(
+            caption,
+            slider,
+            valueDisplay
+        );
+
+
+        const target =
+            document.querySelector('.analyse__tools') ||
+            document.querySelector('.analyse__controls') ||
+            document.querySelector('.analyse__underboard');
+
+        if (target) {
+            target.appendChild(container);
+        }
+    }
+
+
+    function createControls() {
+
+        createSlider(
+            'variation-text-opacity',
+            'Variation text',
+            textOpacity,
+            value => {
+
+                textOpacity =
+                    value;
+
                 localStorage.setItem(
-                    STORAGE_KEY,
-                    showVariationText
+                    TEXT_OPACITY_KEY,
+                    value
                 );
 
                 update();
@@ -281,15 +352,23 @@
         );
 
 
-        // Add checkbox to Lichess analysis controls.
-        const target =
-            document.querySelector('.analyse__tools') ||
-            document.querySelector('.analyse__controls') ||
-            document.querySelector('.analyse__underboard');
+        createSlider(
+            'variation-board-pale',
+            'Variation board',
+            boardPale,
+            value => {
 
-        if (target) {
-            target.appendChild(label);
-        }
+                boardPale =
+                    value;
+
+                localStorage.setItem(
+                    BOARD_PALE_KEY,
+                    value
+                );
+
+                update();
+            }
+        );
     }
 
 
@@ -308,10 +387,14 @@
 
             if (
                 board &&
-                showVariationText &&
+                textOpacity > 0 &&
                 ctrl?.onMainline === false
             ) {
                 if (positionOverlay(board)) {
+
+                    overlay.style.opacity =
+                        textOpacity / 10;
+
                     overlay.style.visibility =
                         'visible';
                 }
@@ -330,7 +413,7 @@
 
                 clearInterval(timer);
 
-                createToggle();
+                createControls();
 
                 const board =
                     document.querySelector('cg-board');
